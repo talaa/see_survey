@@ -9,6 +9,7 @@ const sequelize = require('./config/database');
 // Enable CORS for both development and production
 app.use(cors({
   origin: [
+    'http://localhost',
     'http://localhost:5173', // Development
     'https://your-frontend-domain.vercel.app' // Production - Replace with your actual frontend domain
   ],
@@ -58,4 +59,4 @@ sequelize.sync({ alter: true })
   })
   .catch(error => {
     console.error('Unable to sync database:', error);
-  }); 
+  });
