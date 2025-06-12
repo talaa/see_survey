@@ -12,7 +12,7 @@ const sequelize = new Sequelize(
     dialectOptions: process.env.DB_HOST === 'localhost' ? {} : {
       ssl: {
         require: true,
-        rejectUnauthorized: true
+        rejectUnauthorized: false
       }
     },
     pool: {

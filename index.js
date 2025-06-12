@@ -11,7 +11,7 @@ app.use(cors({
   origin: [
     'http://localhost',
     'http://localhost:5173', // Development
-    'https://your-frontend-domain.vercel.app' // Production - Replace with your actual frontend domain
+    'https://see-survey-bmgy.vercel.app' // Production - Replace with your actual frontend domain
   ],
   credentials: true
 }));
@@ -26,6 +26,10 @@ const userRoutes = require('./routes/userRoutes');
 const siteVisitInfoRoutes = require('./routes/siteVisitInfoRoutes');
 const siteAccessRoutes = require('./routes/siteAccessRoutes');
 const siteAreaInfoRoutes = require('./routes/siteAreaInfoRoutes');
+const acConnectionInfoRoutes = require('./routes/acConnectionInfoRoutes');
+const powerMeterRoutes = require('./routes/powerMeterRoutes');
+const acPanelRoutes = require('./routes/acPanelRoutes');
+const outdoorGeneralLayoutRoutes = require('./routes/outdoorGeneralLayoutRoutes');
 
 // Define Sequelize model associations
 const User = require('./models/User');
@@ -45,6 +49,10 @@ app.use('/api/surveys', surveyRoutes);
 app.use('/api/site-visit-info', siteVisitInfoRoutes);
 app.use('/api/site-access', siteAccessRoutes);
 app.use('/api/site-area-info', siteAreaInfoRoutes);
+app.use('/api/ac-connection-info', acConnectionInfoRoutes);
+app.use('/api/power-meter', powerMeterRoutes);
+app.use('/api/ac-panel', acPanelRoutes);
+app.use('/api/outdoor-general-layout', outdoorGeneralLayoutRoutes);
 
 app.get('/', (req, res) => {
   res.send('Backend is running!');
