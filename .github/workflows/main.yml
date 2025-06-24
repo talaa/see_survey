@@ -26,15 +26,18 @@ jobs:
 
       - name: Compare commits
         id: compare
+        shell: pwsh
         run: |
-          UPSTREAM_COMMIT=$(git rev-parse upstream/main)
-          ORIGIN_COMMIT=$(git rev-parse origin/main)
-          echo "upstream=$UPSTREAM_COMMIT" >> $GITHUB_OUTPUT
-          echo "origin=$ORIGIN_COMMIT" >> $GITHUB_OUTPUT
+          $upstream = git rev-parse upstream/main
+          $origin = git rev-parse origin/main
+          echo "upstream=$upstream" >> $env:GITHUB_OUTPUT
+          echo "origin=$origin" >> $env:GITHUB_OUTPUT
 
       - name: Sync if different
         if: steps.compare.outputs.upstream != steps.compare.outputs.origin
+        shell: pwsh
         run: |
           git checkout main
           git merge upstream/main
           git push origin main
+
