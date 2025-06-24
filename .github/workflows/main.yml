@@ -26,7 +26,7 @@ jobs:
 
       - name: Compare commits
         id: compare
-        shell: pwsh
+        shell: powershell
         run: |
           $upstream = git rev-parse upstream/main
           $origin = git rev-parse origin/main
