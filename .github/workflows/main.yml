@@ -2,42 +2,205 @@ name: Sync Fork on Upstream Change
 
 on:
   schedule:
-    - cron: '*/60 * * * *'  # Every 60 minutes
+    - cron: '0 * * * *'  # Every hour (fixed cron syntax)
   workflow_dispatch:
+  repository_dispatch:
+    types: [upstream-update]
 
 jobs:
   sync:
     runs-on: self-hosted  # Your Windows runner
+    
     steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-        with:
-          persist-credentials: false
-
-      - name: Set up Git
-        run: |
-          git config --global user.name "github-actions"
-          git config --global user.email "github-actions@github.com"
-
-      - name: Add upstream and fetch
-        run: |
-          git remote add upstream https://github.com/yasmen-ahmed/see_survey.git
-          git fetch upstream
-
-      - name: Compare commits
-        id: compare
-        shell: powershell
-        run: |
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        fetch-depth: 0  # Fetch full history
+        persist-credentials: true  # Changed to true for pushing
+    
+    - name: Set up Git
+      shell: powershell
+      run: |
+        git config --global user.name "github-actions[bot]"
+        git config --global user.email "github-actions[bot]@users.noreply.github.com"
+        Write-Host "Git configuration completed"
+    
+    - name: Add upstream and fetch
+      shell: powershell
+      run: |
+        try {
+          # Remove upstream if it exists
+          git remote remove upstream 2>$null
+        } catch {
+          Write-Host "Upstream remote doesn't exist, continuing..."
+        }
+        
+        git remote add upstream https://github.com/yasmen-ahmed/see_survey.git
+        git remote -v
+        
+        Write-Host "Fetching upstream changes..."
+        git fetch upstream
+        git fetch origin
+        
+        Write-Host "Fetch completed successfully"
+    
+    - name: Compare commits
+      id: compare
+      shell: powershell
+      run: |
+        try {
           $upstream = git rev-parse upstream/main
           $origin = git rev-parse origin/main
-          echo "upstream=$upstream" >> $env:GITHUB_OUTPUT
-          echo "origin=$origin" >> $env:GITHUB_OUTPUT
-
-      - name: Sync if different
-        if: steps.compare.outputs.upstream != steps.compare.outputs.origin
-        shell: powershell
-        run: |
+          
+          Write-Host "Upstream commit: $upstream"
+          Write-Host "Origin commit: $origin"
+          
+          # Set outputs for GitHub Actions
+          "upstream=$upstream" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "origin=$origin" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          
+          if ($upstream -ne $origin) {
+            Write-Host "New commits found in upstream!"
+            "has_changes=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          } else {
+            Write-Host "No new commits found."
+            "has_changes=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          }
+        } catch {
+          Write-Host "Error comparing commits: $_"
+          "has_changes=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          exit 1
+        }
+    
+    - name: Check for conflicts before merge
+      if: steps.compare.outputs.has_changes == 'true'
+      shell: powershell
+      run: |
+        Write-Host "Checking for potential merge conflicts..."
+        git checkout main
+        
+        # Check if we can merge cleanly
+        $mergeBase = git merge-base HEAD upstream/main
+        $conflicts = git merge-tree $mergeBase HEAD upstream/main
+        
+        if ($conflicts -match "<<<<<<< ") {
+          Write-Host "⚠️ Potential merge conflicts detected!"
+          Write-Host "Conflicts found in the following areas:"
+          Write-Host $conflicts
+          "has_conflicts=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+        } else {
+          Write-Host "✅ No conflicts detected, safe to merge"
+          "has_conflicts=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+        }
+    
+    - name: Sync if different and no conflicts
+      if: steps.compare.outputs.has_changes == 'true' && steps.check-for-conflicts.outputs.has_conflicts == 'false'
+      shell: powershell
+      run: |
+        try {
+          Write-Host "Starting sync process..."
+          
+          # Ensure we're on main branch
           git checkout main
-          git merge upstream/main
+          git status
+          
+          # Merge upstream changes
+          Write-Host "Merging upstream/main..."
+          git merge upstream/main --no-edit
+          
+          # Push changes
+          Write-Host "Pushing changes to origin..."
           git push origin main
-
+          
+          Write-Host "✅ Sync completed successfully!"
+          
+          # Get commit count
+          $commitCount = git rev-list --count origin/main..upstream/main
+          Write-Host "Synced $commitCount new commits"
+          
+        } catch {
+          Write-Host "❌ Error during sync: $_"
+          exit 1
+        }
+    
+    - name: Handle conflicts (Create PR)
+      if: steps.compare.outputs.has_changes == 'true' && steps.check-for-conflicts.outputs.has_conflicts == 'true'
+      shell: powershell
+      run: |
+        Write-Host "Creating branch for manual conflict resolution..."
+        
+        $branchName = "sync/upstream-conflicts-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+        git checkout -b $branchName
+        
+        # Attempt merge to show conflicts
+        try {
+          git merge upstream/main --no-commit
+        } catch {
+          Write-Host "Merge conflicts detected, creating PR for manual resolution"
+        }
+        
+        git add .
+        git commit -m "Sync attempt with conflicts - requires manual resolution"
+        git push origin $branchName
+        
+        Write-Host "Branch '$branchName' created with conflicts for manual resolution"
+    
+    - name: Create Pull Request for conflicts
+      if: steps.compare.outputs.has_changes == 'true' && steps.check-for-conflicts.outputs.has_conflicts == 'true'
+      uses: peter-evans/create-pull-request@v5
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        title: "🔄 Sync with upstream (Conflicts Detected)"
+        body: |
+          ## ⚠️ Upstream Sync with Conflicts
+          
+          This PR contains changes from the upstream repository that have conflicts with our fork.
+          
+          **Upstream commit:** ${{ steps.compare.outputs.upstream }}
+          **Current commit:** ${{ steps.compare.outputs.origin }}
+          
+          ### Manual Action Required
+          Please review and resolve conflicts manually before merging.
+          
+          ### Files with Conflicts
+          Check the conflicted files and resolve them according to your project needs.
+        branch: sync/upstream-conflicts-${{ github.run_number }}
+        delete-branch: true
+    
+    - name: Success notification
+      if: steps.compare.outputs.has_changes == 'true' && steps.check-for-conflicts.outputs.has_conflicts == 'false'
+      shell: powershell
+      run: |
+        Write-Host "🎉 Fork successfully synced with upstream!"
+        Write-Host "Upstream commit: ${{ steps.compare.outputs.upstream }}"
+        Write-Host "Sync completed at: $(Get-Date)"
+        
+        # Optional: Send notification (uncomment if needed)
+        # $webhook = "${{ secrets.TEAMS_WEBHOOK_URL }}"
+        # if ($webhook) {
+        #   $body = @{
+        #     text = "Fork synced with upstream repository successfully!"
+        #   } | ConvertTo-Json
+        #   Invoke-RestMethod -Uri $webhook -Method Post -Body $body -ContentType 'application/json'
+        # }
+    
+    - name: No changes notification
+      if: steps.compare.outputs.has_changes == 'false'
+      shell: powershell
+      run: |
+        Write-Host "ℹ️ No new changes in upstream repository"
+        Write-Host "Fork is up to date!"
+    
+    - name: Pull changes locally (Optional)
+      if: steps.compare.outputs.has_changes == 'true' && steps.check-for-conflicts.outputs.has_conflicts == 'false'
+      shell: powershell
+      run: |
+        # Update local working directory if needed
+        # Uncomment and modify path as needed
+        # $localPath = "C:\path\to\your\local\repo"
+        # if (Test-Path $localPath) {
+        #   Set-Location $localPath
+        #   git pull origin main
+        #   Write-Host "Local repository updated!"
+        # }
