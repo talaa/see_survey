@@ -1,8 +1,8 @@
-name: Sync Fork on Upstream Change
+name: Sync Fork with Upstream
 
 on:
   schedule:
-    - cron: '0 * * * *'  # Every hour (fixed cron syntax)
+    - cron: '* */4 * * *'  # Every hour
   workflow_dispatch:
   repository_dispatch:
     types: [upstream-update]
@@ -12,18 +12,25 @@ jobs:
     runs-on: self-hosted  # Your Windows runner
     
     steps:
+    - name: Clean workspace
+      shell: powershell
+      run: |
+        Remove-Item -Recurse -Force -ErrorAction SilentlyContinue C:/actions-runner/_work/see_survey/see_survey
+        Write-Host "Workspace cleaned"
+    
     - name: Checkout
       uses: actions/checkout@v4
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
         fetch-depth: 0  # Fetch full history
-        persist-credentials: true  # Changed to true for pushing
+        persist-credentials: true
     
     - name: Set up Git
       shell: powershell
       run: |
         git config --global user.name "github-actions[bot]"
         git config --global user.email "github-actions[bot]@users.noreply.github.com"
+        git config --global --add safe.directory C:/actions-runner/_work/see_survey/see_survey
         Write-Host "Git configuration completed"
     
     - name: Add upstream and fetch
@@ -57,24 +64,25 @@ jobs:
           Write-Host "Origin commit: $origin"
           
           # Set outputs for GitHub Actions
-          "upstream=$upstream" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-          "origin=$origin" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          echo "upstream=$upstream" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          echo "origin=$origin" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           
           if ($upstream -ne $origin) {
             Write-Host "New commits found in upstream!"
-            "has_changes=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            echo "has_changes=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           } else {
             Write-Host "No new commits found."
-            "has_changes=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            echo "has_changes=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           }
         } catch {
           Write-Host "Error comparing commits: $_"
-          "has_changes=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          echo "has_changes=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           exit 1
         }
     
     - name: Check for conflicts before merge
       if: steps.compare.outputs.has_changes == 'true'
+      id: check-for-conflicts
       shell: powershell
       run: |
         Write-Host "Checking for potential merge conflicts..."
@@ -88,10 +96,10 @@ jobs:
           Write-Host "⚠️ Potential merge conflicts detected!"
           Write-Host "Conflicts found in the following areas:"
           Write-Host $conflicts
-          "has_conflicts=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          echo "has_conflicts=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
         } else {
           Write-Host "✅ No conflicts detected, safe to merge"
-          "has_conflicts=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          echo "has_conflicts=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
         }
     
     - name: Sync if different and no conflicts
@@ -118,7 +126,6 @@ jobs:
           # Get commit count
           $commitCount = git rev-list --count origin/main..upstream/main
           Write-Host "Synced $commitCount new commits"
-          
         } catch {
           Write-Host "❌ Error during sync: $_"
           exit 1
@@ -175,15 +182,6 @@ jobs:
         Write-Host "🎉 Fork successfully synced with upstream!"
         Write-Host "Upstream commit: ${{ steps.compare.outputs.upstream }}"
         Write-Host "Sync completed at: $(Get-Date)"
-        
-        # Optional: Send notification (uncomment if needed)
-        # $webhook = "${{ secrets.TEAMS_WEBHOOK_URL }}"
-        # if ($webhook) {
-        #   $body = @{
-        #     text = "Fork synced with upstream repository successfully!"
-        #   } | ConvertTo-Json
-        #   Invoke-RestMethod -Uri $webhook -Method Post -Body $body -ContentType 'application/json'
-        # }
     
     - name: No changes notification
       if: steps.compare.outputs.has_changes == 'false'
@@ -191,16 +189,3 @@ jobs:
       run: |
         Write-Host "ℹ️ No new changes in upstream repository"
         Write-Host "Fork is up to date!"
-    
-    - name: Pull changes locally (Optional)
-      if: steps.compare.outputs.has_changes == 'true' && steps.check-for-conflicts.outputs.has_conflicts == 'false'
-      shell: powershell
-      run: |
-        # Update local working directory if needed
-        # Uncomment and modify path as needed
-        # $localPath = "C:\path\to\your\local\repo"
-        # if (Test-Path $localPath) {
-        #   Set-Location $localPath
-        #   git pull origin main
-        #   Write-Host "Local repository updated!"
-        # }
