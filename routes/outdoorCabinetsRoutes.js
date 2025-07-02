@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const OutdoorCabinetsService = require('../services/OutdoorCabinetsService');
+const OutdoorCabinetsImageService = require('../services/OutdoorCabinetsImageService');
+const { uploadAnyWithErrorHandling } = require('../middleware/upload');
 
 /**
  * Main endpoint for Outdoor Cabinets Info
@@ -40,11 +42,13 @@ router.route('/:session_id')
       });
     }
   })
-  .put(async (req, res) => {
+  .put(uploadAnyWithErrorHandling, async (req, res) => {
     try {
       const { session_id } = req.params;
-      const updateData = req.body;
-      
+      let updateData = {};
+      let imageResults = [];
+      let hasImageUploadFailures = false;
+
       // Validate session_id parameter
       if (!session_id || session_id.trim() === '') {
         return res.status(400).json({
@@ -55,25 +59,177 @@ router.route('/:session_id')
           }
         });
       }
-      
-      // Validate request body
-      if (!updateData || Object.keys(updateData).length === 0) {
+
+      // Handle different types of requests
+      if (req.body.data) {
+        // Form-data with JSON data field
+        try {
+          updateData = JSON.parse(req.body.data);
+        } catch (e) {
+          updateData = req.body;
+        }
+      } else if (req.body.numberOfCabinets || req.body.cabinets) {
+        // Form-data with individual fields
+        updateData = req.body;
+      } else if (Object.keys(req.body).length > 0) {
+        // Regular JSON body
+        updateData = req.body;
+      }
+
+      // Process cabinet data if present
+      if (updateData && Object.keys(updateData).length > 0) {
+        console.log('Processing cabinet data:', updateData);
+        
+        // Update cabinet data
+        const data = await OutdoorCabinetsService.getOrCreateBySessionId(session_id, updateData);
+        
+        // Process image uploads if present
+        if (req.files && req.files.length > 0) {
+          console.log('Processing image uploads:', req.files.length);
+          
+          for (const file of req.files) {
+            try {
+              let imageCategory = file.fieldname;
+              let cabinetNumber = null;
+
+              // Extract cabinet number from image category
+              const match = imageCategory.match(/cabinet_(\d+)_/);
+              if (match) {
+                cabinetNumber = parseInt(match[1]);
+              }
+
+              if (!cabinetNumber) {
+                imageResults.push({
+                  category: imageCategory,
+                  success: false,
+                  error: 'Could not determine cabinet number from image category'
+                });
+                hasImageUploadFailures = true;
+                continue;
+              }
+
+              const result = await OutdoorCabinetsImageService.replaceImage({
+                file,
+                session_id,
+                cabinet_number: cabinetNumber,
+                image_category: imageCategory,
+                description: null
+              });
+
+              imageResults.push({
+                category: imageCategory,
+                cabinet_number: cabinetNumber,
+                success: true,
+                data: result.data
+              });
+            } catch (err) {
+              hasImageUploadFailures = true;
+              imageResults.push({
+                category: file.fieldname,
+                success: false,
+                error: err.message
+              });
+            }
+          }
+        }
+
+        // Get updated data with images
+        const finalData = await OutdoorCabinetsService.getOrCreateBySessionId(session_id);
+
+        const successCount = imageResults.filter(r => r.success).length;
+        const failCount = imageResults.filter(r => !r.success).length;
+
+        res.json({
+          success: !hasImageUploadFailures,
+          data: finalData,
+          message: hasImageUploadFailures
+            ? `Data updated successfully, but ${failCount} image upload(s) failed`
+            : `Data and ${successCount} image(s) updated successfully`,
+          images_processed: {
+            total: imageResults.length,
+            successful: successCount,
+            failed: failCount,
+            details: imageResults
+          }
+        });
+
+      } else if (req.files && req.files.length > 0) {
+        // Only images, no data update
+        console.log('Processing only image uploads:', req.files.length);
+        
+        for (const file of req.files) {
+          try {
+            let imageCategory = file.fieldname;
+            let cabinetNumber = null;
+
+            // Extract cabinet number from image category
+            const match = imageCategory.match(/cabinet_(\d+)_/);
+            if (match) {
+              cabinetNumber = parseInt(match[1]);
+            }
+
+            if (!cabinetNumber) {
+              imageResults.push({
+                category: imageCategory,
+                success: false,
+                error: 'Could not determine cabinet number from image category'
+              });
+              hasImageUploadFailures = true;
+              continue;
+            }
+
+            const result = await OutdoorCabinetsImageService.replaceImage({
+              file,
+              session_id,
+              cabinet_number: cabinetNumber,
+              image_category: imageCategory,
+              description: null
+            });
+
+            imageResults.push({
+              category: imageCategory,
+              cabinet_number: cabinetNumber,
+              success: true,
+              data: result.data
+            });
+          } catch (err) {
+            hasImageUploadFailures = true;
+            imageResults.push({
+              category: file.fieldname,
+              success: false,
+              error: err.message
+            });
+          }
+        }
+
+        // Get current data
+        const data = await OutdoorCabinetsService.getOrCreateBySessionId(session_id);
+
+        const successCount = imageResults.filter(r => r.success).length;
+        const failCount = imageResults.filter(r => !r.success).length;
+
+        res.json({
+          success: !hasImageUploadFailures,
+          data,
+          message: hasImageUploadFailures
+            ? `${failCount} image upload(s) failed`
+            : `${successCount} image(s) uploaded successfully`,
+          images_processed: {
+            total: imageResults.length,
+            successful: successCount,
+            failed: failCount,
+            details: imageResults
+          }
+        });
+      } else {
         return res.status(400).json({
           success: false,
           error: {
             type: 'INVALID_BODY',
-            message: 'Request body cannot be empty'
+            message: 'No data or files provided'
           }
         });
       }
-      
-      const data = await OutdoorCabinetsService.getOrCreateBySessionId(session_id, updateData);
-      
-      res.json({
-        success: true,
-        data,
-        message: 'Outdoor cabinets info updated successfully'
-      });
       
     } catch (error) {
       console.error('Outdoor Cabinets PUT Error:', error);
@@ -307,6 +463,93 @@ router.get('/health/check', (req, res) => {
       'vendor_analytics'
     ]
   });
+});
+
+// Upload/replace cabinet image
+router.post('/:sessionId/cabinet/:cabinetNumber/image', uploadAnyWithErrorHandling, async (req, res) => {
+  try {
+    if (!req.files || req.files.length === 0) {
+      throw new Error('No image file provided');
+    }
+
+    const file = req.files[0]; // Get the first file
+    const image_category = req.body.image_category;
+    
+    if (!image_category) {
+      throw new Error('Image category is required');
+    }
+
+    const result = await OutdoorCabinetsImageService.replaceImage({
+      file,
+      session_id: req.params.sessionId,
+      cabinet_number: parseInt(req.params.cabinetNumber),
+      image_category,
+      description: req.body.description || null
+    });
+
+    res.json(result);
+  } catch (error) {
+    console.error('Error uploading cabinet image:', error);
+    res.status(error.status || 500).json({
+      success: false,
+      message: error.message || 'Internal server error'
+    });
+  }
+});
+
+// Delete cabinet images
+router.delete('/:sessionId/cabinet/:cabinetNumber/images', async (req, res) => {
+  try {
+    const result = await OutdoorCabinetsImageService.deleteImagesBySessionAndNumber(
+      req.params.sessionId,
+      parseInt(req.params.cabinetNumber)
+    );
+
+    res.json({
+      success: true,
+      message: 'Images deleted successfully',
+      count: result
+    });
+  } catch (error) {
+    console.error('Error deleting cabinet images:', error);
+    res.status(error.status || 500).json({
+      success: false,
+      message: error.message || 'Internal server error'
+    });
+  }
+});
+
+// Delete all images for a session
+router.delete('/:sessionId/images', async (req, res) => {
+  try {
+    const result = await OutdoorCabinetsImageService.deleteAllImagesBySessionId(req.params.sessionId);
+
+    res.json({
+      success: true,
+      message: 'All session images deleted successfully',
+      count: result
+    });
+  } catch (error) {
+    console.error('Error deleting session images:', error);
+    res.status(error.status || 500).json({
+      success: false,
+      message: error.message || 'Internal server error'
+    });
+  }
+});
+
+// Delete outdoor cabinets data and images
+router.delete('/:sessionId', async (req, res) => {
+  try {
+    const result = await OutdoorCabinetsService.deleteBySessionId(req.params.sessionId);
+    res.json(result);
+  } catch (error) {
+    console.error('Error deleting outdoor cabinets:', error);
+    res.status(error.status || 500).json({
+      success: false,
+      message: error.message || 'Internal server error'
+    });
+  }
 });
 
 module.exports = router; 

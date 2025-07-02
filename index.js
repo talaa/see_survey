@@ -45,6 +45,7 @@ app.use((req, res, next) => {
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use('/uploads/mw_antennas', express.static(path.join(__dirname, 'uploads/mw_antennas')));
 app.use('/uploads/site_images', express.static(path.join(__dirname, 'uploads/site_images')));
+app.use('/uploads/transmission_mw', express.static(path.join(__dirname, 'uploads/transmission_mw')));
 
 // Routes
 const siteLocationRoutes = require('./routes/siteLocationRoutes');
@@ -99,6 +100,9 @@ const NewGPS = require('./models/NewGPS');
 const HealthSafetySiteAccess = require('./models/HealthSafetySiteAccess');
 const HealthSafetyBTSAccess = require('./models/HealthSafetyBTSAccess');
 const MWAntennasImages = require('./models/MWAntennasImages');
+
+// Load AC Connection associations
+require('./models/associations');
 
 User.hasMany(Survey, { foreignKey: 'user_id', as: 'surveys' });
 User.hasMany(Survey, { foreignKey: 'creator_id', as: 'createdSurveys' });

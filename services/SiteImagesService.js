@@ -1,14 +1,27 @@
 const BaseImageService = require('./BaseImageService');
 const SiteImages = require('../models/SiteImages');
 const fs = require('fs').promises;
+const path = require('path');
 
 class SiteImagesService extends BaseImageService {
   constructor() {
+    // Pass model and upload directory path
     super(
-      'site_images', // Upload directory name
-      SiteImages,    // Model class
-      'site'        // File prefix for unique names
+      SiteImages,
+      path.join(__dirname, '../uploads/site_images')
     );
+    // Override directory name for URL construction to match static file serving
+    this.directoryName = 'site_images';
+  }
+
+  // Override to use 'site' prefix for filenames to match existing pattern
+  generateUniqueFilename(originalName) {
+    const timestamp = Date.now();
+    const crypto = require('crypto');
+    const path = require('path');
+    const rand = crypto.randomBytes(8).toString('hex');
+    const ext = path.extname(originalName).toLowerCase();
+    return `site_${timestamp}_${rand}${ext}`;
   }
 
   // Get empty image structure
