@@ -14,7 +14,8 @@ app.use(cors({
     'http://localhost:5173', // Development
     'https://see-survey-bmgy.vercel.app',
     'http://localhost:8000',
-    "http://10.129.10.227"
+    "http://10.129.10.227",
+    'http://localhost:8001'
   ],
   credentials: true
 }));
@@ -75,6 +76,8 @@ const newFPFHsRoutes = require('./routes/newFPFHsRoutes');
 const newGPSRoutes = require('./routes/newGPSRoutes');
 const siteImagesRoutes = require('./routes/siteImagesRoutes');
 const exportRoutes = require('./routes/exportRoutes');
+// Reporting routes
+const reportRoutes = require('./routes/report');
 // Health & Safety routes
 const healthSafetySiteAccessRoutes = require('./routes/healthSafetySiteAccessRoutes');
 const healthSafetyBTSAccessRoutes = require('./routes/healthSafetyBTSAccessRoutes');
@@ -100,6 +103,7 @@ const NewGPS = require('./models/NewGPS');
 const HealthSafetySiteAccess = require('./models/HealthSafetySiteAccess');
 const HealthSafetyBTSAccess = require('./models/HealthSafetyBTSAccess');
 const MWAntennasImages = require('./models/MWAntennasImages');
+const { report } = require('process');
 
 // Load AC Connection associations
 require('./models/associations');
@@ -167,6 +171,8 @@ app.use('/api/new-fpfh', newFPFHsRoutes);
 app.use('/api/new-gps', newGPSRoutes);
 app.use('/api/site-images', siteImagesRoutes);
 app.use('/api/export', exportRoutes);
+//reporting documents
+app.use('api/report',reportRoutes);
 // Health & Safety route registrations
 app.use('/api/health-safety-site-access', healthSafetySiteAccessRoutes);
 app.use('/api/health-safety-bts-access', healthSafetyBTSAccessRoutes);
