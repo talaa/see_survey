@@ -2,7 +2,7 @@ name: Sync Fork with Upstream
 
 on:
   schedule:
-    - cron: '* */4 * * *'  # Every hour
+    - cron: '0 */4 * * *'  # Every 4 hours at the 0th minute
   workflow_dispatch:
   repository_dispatch:
     types: [upstream-update]
@@ -137,55 +137,24 @@ jobs:
       run: |
         Write-Host "Creating branch for manual conflict resolution..."
         
-        $branchName = "sync/upstream-conflicts-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+        $branchName = "sync/upstream-conflicts-${{ github.run_number }}"
         git checkout -b $branchName
         
-        # Attempt merge to show conflicts
+        # Attempt merge and allow conflicts
         try {
-          git merge upstream/main --no-commit
+          git merge upstream/main --no-ff --no-commit
+          git add .
+          git commit -m "Sync attempt with conflicts - requires manual resolution"
         } catch {
-          Write-Host "Merge conflicts detected, creating PR for manual resolution"
+          Write-Host "Merge conflicts detected, committing conflicted state"
+          git add .
+          git commit -m "Sync attempt with conflicts - requires manual resolution"
         }
         
-        git add .
-        git commit -m "Sync attempt with conflicts - requires manual resolution"
         git push origin $branchName
+        echo "conflict_branch=$branchName" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
         
         Write-Host "Branch '$branchName' created with conflicts for manual resolution"
     
     - name: Create Pull Request for conflicts
-      if: steps.compare.outputs.has_changes == 'true' && steps.check-for-conflicts.outputs.has_conflicts == 'true'
-      uses: peter-evans/create-pull-request@v5
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
-        title: "🔄 Sync with upstream (Conflicts Detected)"
-        body: |
-          ## ⚠️ Upstream Sync with Conflicts
-          
-          This PR contains changes from the upstream repository that have conflicts with our fork.
-          
-          **Upstream commit:** ${{ steps.compare.outputs.upstream }}
-          **Current commit:** ${{ steps.compare.outputs.origin }}
-          
-          ### Manual Action Required
-          Please review and resolve conflicts manually before merging.
-          
-          ### Files with Conflicts
-          Check the conflicted files and resolve them according to your project needs.
-        branch: sync/upstream-conflicts-${{ github.run_number }}
-        delete-branch: true
-    
-    - name: Success notification
-      if: steps.compare.outputs.has_changes == 'true' && steps.check-for-conflicts.outputs.has_conflicts == 'false'
-      shell: powershell
-      run: |
-        Write-Host "🎉 Fork successfully synced with upstream!"
-        Write-Host "Upstream commit: ${{ steps.compare.outputs.upstream }}"
-        Write-Host "Sync completed at: $(Get-Date)"
-    
-    - name: No changes notification
-      if: steps.compare.outputs.has_changes == 'false'
-      shell: powershell
-      run: |
-        Write-Host "ℹ️ No new changes in upstream repository"
-        Write-Host "Fork is up to date!"
+      if: steps.compare.outputs.has_changes == 'true
